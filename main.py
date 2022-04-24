@@ -1,4 +1,4 @@
-import pymorphy2
+﻿import pymorphy2
 import json
 import datetime
 import requests
@@ -8,13 +8,15 @@ import os
 def parse(text):
     analyzer = pymorphy2.MorphAnalyzer()
     text = text.replace('-', ' ')
-    text = text.replace('километр', 'км')
     for pretext in ['от', 'с', 'из', 'до', 'на', 'к', 'в']:
         text = text.replace(pretext + ' ', '')
     text = text.split(' ')
     for index, part in enumerate(text):
+        if part.isdigit():
+            continue
         text[index] = analyzer.parse(part)[0].inflect({'nomn'}).word
     text = ' '.join(text)
+    text = text.replace('километр', 'км')
     return text
 
 def getdate(date):
@@ -71,7 +73,7 @@ def addnull(integer):
         return str(integer)
 
 def engine(intents):
-    helptext = '''Скажи мне станцию отправления, назначения и время. ''' +\
+    helptext = '''Скажи мне станцию отправления, станцию назначения и время. ''' +\
     '''Например, "Едем с Ильинской на Фабричную завтра в 9 утра"'''
     dontunderstand = 'Прости, но я не поняла твою команду. Повтори еще раз или скажи "помогите"'
     if 'YANDEX.HELP' in intents:
@@ -115,7 +117,7 @@ def engine(intents):
 
 def handler(event, context):
     response = {
-        'text': 'Привет! Скажи, откуда мы поедем и куда?', 
+        'text': 'Откуда поедем и куда?', 
         'end_session': False}
     if 'request' in event and 'original_utterance' in event['request'] \
                 and len(event['request']['original_utterance']) > 0:
