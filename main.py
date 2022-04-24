@@ -119,8 +119,14 @@ def engine(intents):
     text = f"Ближайший поезд прибудет к заданной дате в {addnull(ticket['date'].hour)}:{addnull(ticket['date'].minute)} " +\
         f"{addnull(ticket['date'].day)}.{addnull(ticket['date'].month)}.{addnull(ticket['date'].year)}"
     if ticket['date'].day == datetime.datetime.now().day:
+        timeleft = int((ticket['date'] - datetime.datetime.now()).seconds / 60)
+        unit = 'минут'
+        if timeleft == 1 or timeleft % 10 == 1:
+            unit = 'минуту'
+        if timeleft > 1 and timeleft < 5 or timeleft % 10 > 1 and timeleft % 10 < 5 and timeleft > 20:
+            unit = 'минуты'
         text = f"Ближайший поезд {ticket['title']} прибудет в {addnull(ticket['date'].hour)}:{addnull(ticket['date'].minute)}," +\
-            f" через {int((ticket['date'] - datetime.datetime.now()).seconds / 60)} минут"
+            f" через {timeleft} {unit}"
     return {'text': text, 'end_session': True}
 
 def handler(event, context):
