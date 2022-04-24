@@ -5,9 +5,17 @@ import requests
 import time
 import os
 
+def numeralparse(text):
+    with open('numerals.json') as f:
+        numerals = json.load(f)
+    for key in list(numerals.keys())[::-1]:
+        text = text.replace(key, numerals[key])
+    return text
+
 def parse(text):
     analyzer = pymorphy2.MorphAnalyzer()
     text = text.replace('-', ' ')
+    text = numeralparse(text)
     for pretext in ['от', 'с', 'из', 'до', 'на', 'к', 'в']:
         text = text.replace(pretext + ' ', '')
     text = text.split(' ')
