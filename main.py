@@ -37,16 +37,19 @@ def getdate(yandex_date):
                 date = date.replace(**unit['argument'])
     return date
 
-def deltastr(timedelta):
+def deltastr(timedelta, addthrough=True, disable_seconds=False):
     analyzer = pymorphy2.MorphAnalyzer()
     units = [
         {'unit': 'день', 'seconds': 86400},
         {'unit': 'час', 'seconds': 3600},
-        {'unit': 'минуту', 'seconds': 60},
-        {'unit': 'секунду', 'seconds': 1}
+        {'unit': 'минуту' if addthrough else 'минута', 'seconds': 60},
+        {'unit': 'секунду' if addthrough else 'секунда', 'seconds': 1}
     ]
 
-    text = ['через']
+    if disable_seconds:
+        del units[-1]
+
+    text = ['через'] if addthrough else []  
     total_seconds = timedelta.total_seconds()
     for unit in units:
         unit_count = int(total_seconds / unit['seconds'])
@@ -69,17 +72,24 @@ def getticket(departure, arrival, date, apikey):
     if request['pagination']['total'] == 0:
         return None
     
-    for segment in request['segments']:
+    segments = request['segments']
+    for index, segment in enumerate(segments):
         segment_date = datetime.datetime.strptime(segment['departure'][:-6], 
             '%Y-%m-%dT%H:%M:%S')
         if segment_date > date:
+            segment['next'] = segments[index + 1] if index + 1 < len(segments) else ''
             return segment
 
 def parseticket(ticket):
     date = datetime.datetime.strptime(ticket['departure'][:-6], '%Y-%m-%dT%H:%M:%S')
     title = ticket['thread']['title']
     platform = ''.join(filter(lambda x: x.isdigit(), ticket['departure_platform']))
-    return {'date': date, 'title': title, 'platform': platform}
+    duration = ticket['duration']
+    nextticket = parseticket(ticket['next']) if ticket.get('next') else ''
+    return {
+        'date': date, 'title': title, 'platform': platform, 'duration': duration, 
+        'next': nextticket
+    }
 
 def addnull(integer):
     integer = int(integer)
@@ -89,8 +99,9 @@ def addnull(integer):
         return str(integer)
 
 def engine(tokens, entities, intents):
-    helptext = '''Скажи мне станцию отправления, станцию назначения и время. ''' +\
-    '''Например, "Едем с Ильинской на Казанский вокзал завтра в 9 утра"'''
+    helptext = "Скажи мне станцию отправления, станцию назначения и время. " +\
+    "Также ты можешь использовать команды «подробно» и «расписание». " +\
+    "Например, «Едем с Ильинской на Казанский вокзал завтра в 9 утра подробно»"
     dontunderstand = 'Прости, но я не поняла твою команду. Повтори еще раз или скажи "помогите"'
     
     os.environ['TZ'] = 'Europe/Moscow'
@@ -127,6 +138,16 @@ def engine(tokens, entities, intents):
     date = datetime.datetime.now()
     if 'when' in slots:
         date = getdate(slots['when']['value'])
+    
+    if 'schedule' in slots:
+        return {
+            'text': 'Вот ссылочка', 'end_session': True,
+            'button': {
+                'title': "Я.Расписание",
+                'url':'https://rasp.yandex.ru/search/suburban/?' +\
+                    f'fromId={departurecode}&toId={arrivalcode}&date={date.strftime("%Y-%m-%d")}'
+            }
+        }
 
     with open('apikey.txt') as f:
         apikey = f.read()
@@ -137,7 +158,8 @@ def engine(tokens, entities, intents):
 
     ticket = parseticket(ticket)
     text = "Ближайший поезд прибудет в " + ticket['date'].strftime('%H:%M %d.%m.%Y')
-    if ticket['date'].day == datetime.datetime.now().day:
+    today = ticket['date'].day == datetime.datetime.now().day
+    if today:
         deptime = f"в {ticket['date'].strftime('%H:%M')}, " +\
             deltastr(ticket['date'] - datetime.datetime.now())
         text = [
@@ -146,6 +168,16 @@ def engine(tokens, entities, intents):
             deptime
         ]
         text = ' '.join(text)
+    if 'detail' in slots:
+        if ticket['next']:
+            text += ". Следующий поезд ожидается "
+            if today:
+                text += deltastr(ticket['next']['date'] - datetime.datetime.now(), 
+                    disable_seconds=True)
+            else:
+                text += "в " + ticket['next']['date'].strftime('%H:%M')
+        text += ". Продолжительность поездки составит " +\
+            deltastr(datetime.timedelta(seconds=ticket['duration']), False)
     return {'text': text, 'end_session': True}
 
 def handler(event, context):
@@ -159,14 +191,15 @@ def handler(event, context):
                 event['request']['nlu']['entities'], 
                     event['request']['nlu']['intents'])
         except Exception as e:
-            # response = {'text': e, 'end_session': False}
+            response = {'text': e, 'end_session': False}
             # response = {'text': traceback.format_tb(e.__traceback__), 'end_session': False}
-            response = {'text': 'Ой, кажется я сломалась', 'end_session': True}
+            # response = {'text': 'Ой, кажется я сломалась', 'end_session': True}
     return {
         'version': event['version'],
         'session': event['session'],
         'response': {
             'text': response['text'],
-            'end_session': response['end_session']
+            'end_session': response['end_session'],
+            'buttons': [response['button']] if response.get('button') else []
         },
     }
