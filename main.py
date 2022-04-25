@@ -37,6 +37,26 @@ def getdate(yandex_date):
                 date = date.replace(**unit['argument'])
     return date
 
+def deltastr(timedelta):
+    analyzer = pymorphy2.MorphAnalyzer()
+    units = [
+        {'unit': 'день', 'seconds': 86400},
+        {'unit': 'час', 'seconds': 3600},
+        {'unit': 'минуту', 'seconds': 60},
+        {'unit': 'секунду', 'seconds': 1}
+    ]
+
+    text = ['через']
+    total_seconds = timedelta.total_seconds()
+    for unit in units:
+        unit_count = int(total_seconds / unit['seconds'])
+        if unit_count:
+            text.append(str(unit_count))
+            text.append(analyzer.parse(unit['unit'])[0].\
+                make_agree_with_number(unit_count).word)
+        total_seconds %= unit['seconds']
+    return ' '.join(text)
+
 def getticket(departure, arrival, date, apikey):
     request = requests.get('https://api.rasp.yandex.net/v3.0/search/', 
         params={'apikey': apikey, 'from': departure, 'to': arrival, 'lang': 'ru_RU', 
@@ -115,17 +135,11 @@ def engine(tokens, entities, intents):
         return {'text': 'Прости, но мне не удалось ничего найти на заданную дату и время', 'end_session': True}
 
     ticket = parseticket(ticket)
-    text = f"Ближайший поезд прибудет к заданной дате в {addnull(ticket['date'].hour)}:{addnull(ticket['date'].minute)} " +\
-        f"{addnull(ticket['date'].day)}.{addnull(ticket['date'].month)}.{addnull(ticket['date'].year)}"
+    text = "Ближайший поезд прибудет в " + ticket['date'].strftime('%H:%M %d.%m.%Y')
     if ticket['date'].day == datetime.datetime.now().day:
-        timeleft = int((ticket['date'] - datetime.datetime.now()).seconds / 60)
-        unit = 'минут'
-        if timeleft == 1 or timeleft % 10 == 1:
-            unit = 'минуту'
-        if timeleft > 1 and timeleft < 5 or timeleft % 10 > 1 and timeleft % 10 < 5 and timeleft > 20:
-            unit = 'минуты'
-        text = f"Ближайший поезд {ticket['title']} прибудет в {addnull(ticket['date'].hour)}:{addnull(ticket['date'].minute)}," +\
-            f" через {timeleft} {unit}"
+        timeleft = ticket['date'] - datetime.datetime.now()
+        text = f"Ближайший поезд {ticket['title']} прибудет в " +\
+            f"{ticket['date'].strftime('%H:%M')}, {deltastr(timeleft)}"
     return {'text': text, 'end_session': True}
 
 def handler(event, context):
