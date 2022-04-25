@@ -191,9 +191,9 @@ def handler(event, context):
                 event['request']['nlu']['entities'], 
                     event['request']['nlu']['intents'])
         except Exception as e:
-            response = {'text': e, 'end_session': False}
+            # response = {'text': e, 'end_session': False}
             # response = {'text': traceback.format_tb(e.__traceback__), 'end_session': False}
-            # response = {'text': 'Ой, кажется я сломалась', 'end_session': True}
+            response = {'text': 'Ой, кажется я сломалась', 'end_session': True}
     return {
         'version': event['version'],
         'session': event['session'],
