@@ -78,7 +78,8 @@ def getticket(departure, arrival, date, apikey):
 def parseticket(ticket):
     date = datetime.datetime.strptime(ticket['departure'][:-6], '%Y-%m-%dT%H:%M:%S')
     title = ticket['thread']['title']
-    return {'date': date, 'title': title}
+    platform = ''.join(filter(lambda x: x.isdigit(), ticket['departure_platform']))
+    return {'date': date, 'title': title, 'platform': platform}
 
 def addnull(integer):
     integer = int(integer)
@@ -89,7 +90,7 @@ def addnull(integer):
 
 def engine(tokens, entities, intents):
     helptext = '''Скажи мне станцию отправления, станцию назначения и время. ''' +\
-    '''Например, "Едем с Ильинской на Фабричную завтра в 9 утра"'''
+    '''Например, "Едем с Ильинской на Казанский вокзал завтра в 9 утра"'''
     dontunderstand = 'Прости, но я не поняла твою команду. Повтори еще раз или скажи "помогите"'
     
     os.environ['TZ'] = 'Europe/Moscow'
@@ -137,9 +138,14 @@ def engine(tokens, entities, intents):
     ticket = parseticket(ticket)
     text = "Ближайший поезд прибудет в " + ticket['date'].strftime('%H:%M %d.%m.%Y')
     if ticket['date'].day == datetime.datetime.now().day:
-        timeleft = ticket['date'] - datetime.datetime.now()
-        text = f"Ближайший поезд {ticket['title']} прибудет в " +\
-            f"{ticket['date'].strftime('%H:%M')}, {deltastr(timeleft)}"
+        deptime = f"в {ticket['date'].strftime('%H:%M')}, " +\
+            deltastr(ticket['date'] - datetime.datetime.now())
+        text = [
+            "Ближайший поезд", ticket['title'], 
+            f"прибудет на платформу {ticket['platform']}",
+            deptime
+        ]
+        text = ' '.join(text)
     return {'text': text, 'end_session': True}
 
 def handler(event, context):
@@ -153,9 +159,9 @@ def handler(event, context):
                 event['request']['nlu']['entities'], 
                     event['request']['nlu']['intents'])
         except Exception as e:
-            response = {'text': e, 'end_session': False}
+            # response = {'text': e, 'end_session': False}
             # response = {'text': traceback.format_tb(e.__traceback__), 'end_session': False}
-            # response = {'text': 'Ой, кажется я сломалась', 'end_session': True}
+            response = {'text': 'Ой, кажется я сломалась', 'end_session': True}
     return {
         'version': event['version'],
         'session': event['session'],
