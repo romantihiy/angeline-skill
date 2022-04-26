@@ -121,7 +121,7 @@ def engine(request, session):
 
     intents = request['nlu']['intents']
     
-    if 'YANDEX.HELP' in intents:
+    if 'YANDEX.HELP' in intents or 'helpintent' in intents:
         return {'text': helptext, 'end_session': False}
     if 'mainintent' not in intents:
         return {'text': dontunderstand, 'end_session': False}
