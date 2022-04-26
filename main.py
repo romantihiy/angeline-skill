@@ -94,6 +94,19 @@ def parseticket(ticket):
         'next': nextticket
     }
 
+def getlimit(projectid, apikey):
+    request = requests.get(
+        f'https://api-developer.tech.yandex.net/projects/{projectid}/services/rasp/limits',
+        headers={'X-Auth-Key': apikey}
+    )
+    
+    if not request.ok:
+        return {'limit': -1, 'used': -1}
+    request = request.json()
+
+    limits = request['limits']['rasp_hits_daily']
+    return {'limit': limits['limit'], 'used': limits['value']}
+
 def engine(request, session):
     helptext = "Скажи мне станцию отправления, станцию назначения и время. " +\
     "Также ты можешь использовать команды «подробно» и «расписание». " +\
@@ -103,6 +116,8 @@ def engine(request, session):
     notfound = "Прости, но мне не удалось ничего найти на заданную дату и время"
     train = "Ближайший поезд прибудет на платформу {platform} в {datetime}"
     detail = "Продолжительность поездки составит {duration}. Следующий поезд ожидается {next}"
+    norequests = "Я очень устала и не могу ничего искать, прости меня..."
+    norequeststts = "Я очень устала sil <[200]> и не могу ничего искать sil <[500]>, прости меня..."
 
     intents = request['nlu']['intents']
     
@@ -118,6 +133,12 @@ def engine(request, session):
 
     with open('config.json') as f:
         config = json.load(f)
+
+    limits = getlimit(config['projectid'], config['developerkey'])
+    if config['maximumrequests'] < limits['used'] and user_id not in config['admins'] and\
+            limits['limit'] > 0:
+        return {'text': norequests, 'tts': norequeststts, 'end_session': True}
+    
     
     for entity in entities:
         if entity['type'] == 'YANDEX.NUMBER':
@@ -197,6 +218,7 @@ def handler(event, context):
         'session': event['session'],
         'response': {
             'text': response['text'],
+            'tts' : response['tts'] if response.get('tts') else '',
             'end_session': response['end_session'],
             'buttons': [response['button']] if response.get('button') else []
         },
