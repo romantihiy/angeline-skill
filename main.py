@@ -114,6 +114,10 @@ def engine(request, session):
     tokens = request['nlu']['tokens']
     entities = request['nlu']['entities']
     slots = intents['mainintent']['slots']
+    user_id = session['user']['user_id']
+
+    with open('config.json') as f:
+        config = json.load(f)
     
     for entity in entities:
         if entity['type'] == 'YANDEX.NUMBER':
@@ -150,10 +154,7 @@ def engine(request, session):
             }
         }
 
-    with open('apikey.txt') as f:
-        apikey = f.read()
-
-    ticket = getticket(departurecode, arrivalcode, date, apikey)
+    ticket = getticket(departurecode, arrivalcode, date, config['timetablekey'])
     if not ticket:
         return {'text': notfound, 'end_session': True}
     ticket = parseticket(ticket)
