@@ -2,9 +2,12 @@
 import json
 import datetime
 import requests
+import traceback
 import time
 import os
-import traceback
+
+os.environ['TZ'] = 'Europe/Moscow'
+time.tzset()
 
 def parse(tokens):
     analyzer = pymorphy2.MorphAnalyzer()
@@ -19,7 +22,7 @@ def parse(tokens):
     text = ' '.join(tokens)
     return text
 
-def getdate(yandex_date):
+def parsedate(yandex_date):
     date = datetime.datetime.now()
     
     units = [
@@ -91,26 +94,26 @@ def parseticket(ticket):
         'next': nextticket
     }
 
-def addnull(integer):
-    integer = int(integer)
-    if integer < 10:
-        return '0' + str(integer)
-    else:
-        return str(integer)
-
-def engine(tokens, entities, intents):
+def engine(request, session):
     helptext = "Скажи мне станцию отправления, станцию назначения и время. " +\
     "Также ты можешь использовать команды «подробно» и «расписание». " +\
     "Например, «Едем с Ильинской на Казанский вокзал завтра в 9 утра подробно»"
-    dontunderstand = 'Прости, но я не поняла твою команду. Повтори еще раз или скажи "помогите"'
-    
-    os.environ['TZ'] = 'Europe/Moscow'
-    time.tzset()
+    dontunderstand = "Прости, но я не поняла твою команду. Повтори еще раз или скажи «помогите»"
+    dontnow = "Прости, но я не знаю станцию «{}»"
+    notfound = "Прости, но мне не удалось ничего найти на заданную дату и время"
+    train = "Ближайший поезд прибудет на платформу {platform} в {datetime}"
+    detail = "Продолжительность поездки составит {duration}. Следующий поезд ожидается {next}"
 
+    intents = request['nlu']['intents']
+    
     if 'YANDEX.HELP' in intents:
         return {'text': helptext, 'end_session': False}
     if 'mainintent' not in intents:
         return {'text': dontunderstand, 'end_session': False}
+
+    tokens = request['nlu']['tokens']
+    entities = request['nlu']['entities']
+    slots = intents['mainintent']['slots']
     
     for entity in entities:
         if entity['type'] == 'YANDEX.NUMBER':
@@ -118,26 +121,24 @@ def engine(tokens, entities, intents):
             for index in range(entity['tokens']['start'] + 1, entity['tokens']['end']):
                 tokens[index] = ''
 
-    slots = intents['mainintent']['slots']
-
     departure = parse(tokens[ 
         slots['from']['tokens']['start'] : slots['from']['tokens']['end']])
     arrival = parse(tokens[ 
         slots['to']['tokens']['start'] : slots['to']['tokens']['end']])
-
+    
     with open('moscow_region.json') as f:
         stationcodes = json.load(f)
     
     departurecode = stationcodes.get(departure)
     arrivalcode = stationcodes.get(arrival)
     if not departurecode:
-       return {'text': f'''Прости, но я не знаю станцию "{departure}"''', 'end_session': False} 
+       return {'text': dontnow.format(departure), 'end_session': False} 
     if not arrivalcode:
-        return {'text': f'''Прости, но я не знаю станцию "{arrival}"''', 'end_session': False}
+        return {'text': dontnow.format(arrival), 'end_session': False}
     
     date = datetime.datetime.now()
     if 'when' in slots:
-        date = getdate(slots['when']['value'])
+        date = parsedate(slots['when']['value'])
     
     if 'schedule' in slots:
         return {
@@ -154,46 +155,42 @@ def engine(tokens, entities, intents):
 
     ticket = getticket(departurecode, arrivalcode, date, apikey)
     if not ticket:
-        return {'text': 'Прости, но мне не удалось ничего найти на заданную дату и время', 'end_session': True}
-
+        return {'text': notfound, 'end_session': True}
     ticket = parseticket(ticket)
-    text = "Ближайший поезд прибудет в " + ticket['date'].strftime('%H:%M %d.%m.%Y')
-    today = ticket['date'].day == datetime.datetime.now().day
-    if today:
-        deptime = f"в {ticket['date'].strftime('%H:%M')}, " +\
-            deltastr(ticket['date'] - datetime.datetime.now())
-        text = [
-            "Ближайший поезд", ticket['title'], 
-            f"прибудет на платформу {ticket['platform']}",
-            deptime
-        ]
-        text = ' '.join(text)
+
+    istoday = ticket['date'].day == datetime.datetime.now().day
+    if istoday:
+        train = train.format(
+            platform={ticket['platform']} if ticket['platform'] else '',
+            datetime=ticket['date'].strftime('%H:%M')
+        )
+        train += f", {deltastr(ticket['date'] - datetime.datetime.now())}"
+    else:
+        train = train.format(
+            platform={ticket['platform']} if ticket['platform'] else '',
+            datetime=ticket['date'].strftime('%H:%M %d.%m.%Y')
+        )
+
     if 'detail' in slots:
-        if ticket['next']:
-            text += ". Следующий поезд ожидается "
-            if today:
-                text += deltastr(ticket['next']['date'] - datetime.datetime.now(), 
-                    disable_seconds=True)
-            else:
-                text += "в " + ticket['next']['date'].strftime('%H:%M')
-        text += ". Продолжительность поездки составит " +\
-            deltastr(datetime.timedelta(seconds=ticket['duration']), False)
-    return {'text': text, 'end_session': True}
+        detail = detail.format(
+            duration=deltastr(datetime.timedelta(seconds=ticket['duration']), False),
+            next=
+                deltastr(ticket['next']['date'] - datetime.datetime.now(), disable_seconds=True)\
+                    if istoday else "в " + ticket['next']['date'].strftime('%H:%M')\
+                        if ticket['next'] else "неизвестно когда"
+        )
+    return {'text': train + ". " + detail if 'detail' in slots else train, 'end_session': True}
 
 def handler(event, context):
-    response = {
-        'text': 'Откуда поедем и куда?', 
-        'end_session': False}
-    if 'request' in event and 'original_utterance' in event['request'] \
-                and len(event['request']['original_utterance']) > 0:
-        try:
-            response = engine(event['request']['nlu']['tokens'],
-                event['request']['nlu']['entities'], 
-                    event['request']['nlu']['intents'])
-        except Exception as e:
-            # response = {'text': e, 'end_session': False}
-            # response = {'text': traceback.format_tb(e.__traceback__), 'end_session': False}
-            response = {'text': 'Ой, кажется я сломалась', 'end_session': True}
+    response = {'text': 'Откуда поедем и куда?', 'end_session': False}
+    try:
+        if 'request' in event and 'original_utterance' in event['request'] \
+                    and len(event['request']['original_utterance']) > 0:
+            response = engine(event['request'], event['session'])
+    except Exception as e:
+        # response = {'text': e, 'end_session': False}
+        # response = {'text': traceback.format_tb(e.__traceback__), 'end_session': False}
+        response = {'text': 'Ой, кажется, я сломалась', 'end_session': True}
     return {
         'version': event['version'],
         'session': event['session'],
