@@ -17,7 +17,7 @@ config['admins'] = input("Enter administrator user_ids separated by &: ").split(
 config['maximumrequests'] = int(config['maximumrequests']) if config['maximumrequests'] else 0
 
 for key, value in config.items():
-    if not value:
+    if not value or value == ['']:
         config[key] = oldconfig.get(key)
 
 with open('config.json', 'w') as f:
